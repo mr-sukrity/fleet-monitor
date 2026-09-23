@@ -240,6 +240,17 @@ describe('unknown routes', () => {
   });
 });
 
+describe('GET /health', () => {
+  it('reports the configured offline timeout', async () => {
+    const { app } = createTestApp();
+
+    const res = await request(app).get('/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ok', offline_timeout_seconds: TIMEOUT_MS / 1000 });
+  });
+});
+
 describe('dashboard', () => {
   it('serves the static page at the root', async () => {
     const { app } = createTestApp();

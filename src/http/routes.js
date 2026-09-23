@@ -38,8 +38,10 @@ export function createRoutes(fleet) {
     res.json(fleet.getSummary());
   });
 
+  // Not part of the required API. It also reports the timeout so a client can tell
+  // whether its heartbeat interval is short enough to keep a device ONLINE.
   router.get('/health', (_req, res) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', offline_timeout_seconds: fleet.offlineTimeoutMs / 1000 });
   });
 
   return router;

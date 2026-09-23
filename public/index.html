@@ -212,6 +212,12 @@
         margin: 10px 0 0;
       }
 
+      .warn {
+        color: var(--status-critical);
+        font-size: 12px;
+        margin: 10px 0 0;
+      }
+
       .filters {
         display: flex;
         gap: 6px;
@@ -273,6 +279,10 @@
       td.actions button {
         padding: 3px 12px;
         font-size: 12px;
+      }
+            
+      td.actions .beating {
+        margin-right: 10px;
       }
 
       /* Status never relies on colour alone: a dot plus the written label. */
@@ -414,6 +424,7 @@
           <button type="button" id="start-all">Start all</button>
           <button type="button" id="stop-all">Stop all</button>
         </div>
+        <p class="warn" id="interval-warning" role="status" hidden></p>
 
         <p class="note">
           This page sends heartbeats itself, through the same public API as the command-line simulator. It can only
@@ -475,6 +486,37 @@
       function intervalMs() {
         const seconds = Number(el('interval').value);
         return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 5000;
+      }
+            /** Read from the server so the warning matches OFFLINE_TIMEOUT_SECONDS, not a guess. */
+      let offlineTimeoutSeconds = 30;
+
+      async function loadTimeout() {
+        try {
+          const res = await fetch('/health');
+          if (!res.ok) return;
+          const health = await res.json();
+          if (typeof health.offline_timeout_seconds === 'number') {
+            offlineTimeoutSeconds = health.offline_timeout_seconds;
+            el('interval').max = String(offlineTimeoutSeconds);
+          }
+        } catch {
+          // Keep the default. refresh() already reports an unreachable server.
+        }
+      }
+
+      // Beating slower than the timeout makes every device drop to OFFLINE between
+      // heartbeats, which looks like a broken fleet rather than a chosen setting.
+            function checkInterval() {
+        const seconds = intervalMs() / 1000;
+        const warning = el('interval-warning');
+        if (seconds >= offlineTimeoutSeconds) {
+          warning.hidden = false;
+          warning.textContent =
+            `A ${seconds}s interval is not shorter than the server's ${offlineTimeoutSeconds}s timeout, ` +
+            'so every device will drop to OFFLINE between heartbeats.';
+        } else {
+          warning.hidden = true;
+        }
       }
 
       async function postJson(path, body) {
@@ -610,10 +652,22 @@
           const actions = document.createElement('td');
           actions.className = 'actions';
           const isBeating = simulated.has(device.id);
+
+          // A device can be ONLINE while this page is not the one beating it: another tab,
+          // or `npm run simulate`. Without this note a "Start" button beside a live device
+          // reads as if the device were broken.
+          if (!isBeating && device.status === 'ONLINE') {
+            const source = document.createElement('span');
+            source.className = 'beating';
+            source.textContent = 'not from this page';
+            source.title = 'Heartbeats are still arriving, but another client is sending them.';
+            actions.append(source);
+          }
+
           const toggle = document.createElement('button');
           toggle.type = 'button';
           toggle.textContent = isBeating ? 'Stop' : 'Start';
-          toggle.setAttribute('aria-label', `${isBeating ? 'Stop' : 'Start'} heartbeats for ${device.id}`);
+          toggle.setAttribute('aria-label', `${isBeating ? 'Stop' : 'Start'} heartbeats for ${device.id} from this page`);
           toggle.addEventListener('click', () =>
             isBeating ? stopBeating(device.id) : startBeating(device.id, device.name),
           );
@@ -726,8 +780,9 @@
         await refresh();
         setTimeout(poll, REFRESH_MS);
       }
-
-      void poll();
+        await loadTimeout();
+        checkInterval();
+        void poll();
     </script>
   </body>
 </html>
